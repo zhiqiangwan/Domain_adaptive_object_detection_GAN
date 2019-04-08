@@ -21,7 +21,7 @@ import numpy as np
 
 import tensorflow as tf
 from keras.models import Model
-from keras.layers import Input, Lambda, Activation, Conv2D, MaxPooling2D, ZeroPadding2D, Reshape, Concatenate, Subtract, GlobalAveragePooling2D, Dense, GlobalMaxPooling2D
+from keras.layers import Input, Lambda, Activation, Conv2D, MaxPooling2D, ZeroPadding2D, Reshape, Concatenate, Add, Subtract, GlobalAveragePooling2D, Dense, GlobalMaxPooling2D
 from keras.regularizers import l2
 import keras.backend as K
 
@@ -301,11 +301,11 @@ def ssd_512(image_size,
                      kernel_regularizer=l2(l2_reg), name='conv1_2')(conv1_1)
     pool1 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding='same', name='pool1')(conv1_2)
 
-    da_source = Lambda(lambda tensor: tensor[:batch_size, :, :, :])(pool1)
-    da_target = Lambda(lambda tensor: tensor[batch_size:, :, :, :])(pool1)
+    low_source = Lambda(lambda tensor: tensor[:batch_size, :, :, :])(pool1)
+    # low_target = Lambda(lambda tensor: tensor[batch_size:, :, :, :])(pool1)
 
     conv2_1 = Conv2D(128, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
-                     kernel_regularizer=l2(l2_reg), name='conv2_1')(da_source)  # pool1
+                     kernel_regularizer=l2(l2_reg), name='conv2_1')(pool1)  #
     conv2_2 = Conv2D(128, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
                      kernel_regularizer=l2(l2_reg), name='conv2_2')(conv2_1)
     pool2 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding='same', name='pool2')(conv2_2)
@@ -318,8 +318,28 @@ def ssd_512(image_size,
                      kernel_regularizer=l2(l2_reg), name='conv3_3')(conv3_2)
     pool3 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding='same', name='pool3')(conv3_3)
 
+    high_source = Lambda(lambda tensor: tensor[:batch_size, :, :, :])(pool3)
+    high_target = Lambda(lambda tensor: tensor[batch_size:, :, :, :])(pool3)
+
+    # get the style features from the low_source
+    style_conv2_1 = Conv2D(128, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
+                           kernel_regularizer=l2(l2_reg), name='style_conv2_1')(low_source)
+    style_conv2_2 = Conv2D(128, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
+                           kernel_regularizer=l2(l2_reg), name='style_conv2_2')(style_conv2_1)
+    style_pool2 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding='same', name='style_pool2')(style_conv2_2)
+
+    style_conv3_1 = Conv2D(256, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
+                           kernel_regularizer=l2(l2_reg), name='style_conv3_1')(style_pool2)
+    style_conv3_2 = Conv2D(256, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
+                           kernel_regularizer=l2(l2_reg), name='style_conv3_2')(style_conv3_1)
+    style_conv3_3 = Conv2D(256, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
+                           kernel_regularizer=l2(l2_reg), name='style_conv3_3')(style_conv3_2)
+    style_pool3 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding='same', name='style_pool3')(style_conv3_3)
+
+    transferred = Add(name='transferred')([high_source, style_pool3])
+
     conv4_1 = Conv2D(512, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
-                     kernel_regularizer=l2(l2_reg), name='conv4_1')(pool3)  # Important! (pool3)
+                     kernel_regularizer=l2(l2_reg), name='conv4_1')(transferred)  # Important! (pool3)
     conv4_2 = Conv2D(512, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
                      kernel_regularizer=l2(l2_reg), name='conv4_2')(conv4_1)
     conv4_3 = Conv2D(512, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
@@ -529,14 +549,12 @@ def ssd_512(image_size,
         from keras.optimizers import Adam, SGD
         from keras_loss_function.keras_ssd_loss import SSDLoss
 
-        detection_loss_weights = 1.0
-
         Optimizer = SGD(lr=0.0001, momentum=0.9, decay=0.0, nesterov=False)
         Optimizer_D = SGD(lr=0.0001, momentum=0.9, decay=0.0, nesterov=False)
         ssd_loss = SSDLoss(neg_pos_ratio=3, alpha=1.0)
 
         # build the base model (The input and output should have the same batch_size)
-        base_model = Model(inputs=[x_source, x_target], outputs=[da_source, da_target])
+        base_model = Model(inputs=[x_source, x_target], outputs=[transferred, high_target])
         base_model.trainable = False
 
         base_model_source, base_model_target = base_model([x_source, x_target])
@@ -545,98 +563,46 @@ def ssd_512(image_size,
         D_network = 'Conv2'  # 'Conv'  # 'FC2'  # 'FC1'  #
         print('D_network is {0}'.format(D_network))
 
-        distance_metric = 'MMD'  # 'WD'
-        print('distance_metric is {0}'.format(distance_metric))
-        if distance_metric == 'WD':
-            num_dense_output = 1
-        elif distance_metric == 'MMD':
-            num_dense_output = 16
-        else:
-            raise Exception('Unsupported distance_metric!')
-
-        if D_network == 'FC2':
-            D_GP = GlobalAveragePooling2D()(base_model_output)
-            Dense1 = Dense(32, activation='relu', kernel_regularizer=l2(l2_reg))
-            Dense2 = Dense(num_dense_output, kernel_regularizer=l2(l2_reg))
-            Dense1_output = Dense1(D_GP)
-            D_dense = Dense2(Dense1_output)
-            D_dense_source = Lambda(lambda tensor: tensor[:batch_size, :])(D_dense)
-            D_dense_target = Lambda(lambda tensor: tensor[batch_size:, :])(D_dense)
-
-        elif D_network == 'FC1':
-            D_GP = GlobalAveragePooling2D()(base_model_output)
-            Dense2 = Dense(num_dense_output, kernel_regularizer=l2(l2_reg))
-            D_dense = Dense2(D_GP)
-            D_dense_source = Lambda(lambda tensor: tensor[:batch_size, :])(D_dense)
-            D_dense_target = Lambda(lambda tensor: tensor[batch_size:, :])(D_dense)
-
-        elif D_network == 'Conv':
-            D_conv1 = Conv2D(64, (3, 3), activation='relu', padding='valid', kernel_initializer='he_normal',
+        if D_network == 'Conv2':
+            D_conv1 = Conv2D(128, (3, 3), activation='relu', strides=2, padding='same', kernel_initializer='he_normal',
                              kernel_regularizer=l2(l2_reg))
-            D_dense1 = Dense(num_dense_output, kernel_regularizer=l2(l2_reg))
-
-            D_conv1_output = D_conv1(base_model_output)
-            D_GAP = GlobalAveragePooling2D()(D_conv1_output)
-            D_dense = D_dense1(D_GAP)
-            D_dense_source = Lambda(lambda tensor: tensor[:batch_size, :])(D_dense)
-            D_dense_target = Lambda(lambda tensor: tensor[batch_size:, :])(D_dense)
-
-        elif D_network == 'Conv2':
-            D_conv1 = Conv2D(64, (3, 3), activation='relu', padding='valid', kernel_initializer='he_normal',
+            D_conv2 = Conv2D(64, (3, 3), activation='relu', strides=2, padding='same', kernel_initializer='he_normal',
                              kernel_regularizer=l2(l2_reg))
-            D_conv2 = Conv2D(32, (3, 3), activation='relu', padding='valid', kernel_initializer='he_normal',
+            D_conv3 = Conv2D(1, (3, 3), activation=None, strides=2, padding='same', kernel_initializer='he_normal',
                              kernel_regularizer=l2(l2_reg))
-            D_dense1 = Dense(num_dense_output, kernel_regularizer=l2(l2_reg))
 
             D_conv1_output = D_conv1(base_model_output)
             D_conv2_output = D_conv2(D_conv1_output)
-            D_GAP = GlobalAveragePooling2D()(D_conv2_output)
-            D_dense = D_dense1(D_GAP)
-            D_dense_source = Lambda(lambda tensor: tensor[:batch_size, :])(D_dense)
-            D_dense_target = Lambda(lambda tensor: tensor[batch_size:, :])(D_dense)
+            D_conv3_output = D_conv3(D_conv2_output)
+
+            D_output_source = Lambda(lambda tensor: tensor[:batch_size, :])(D_conv3_output)
+            D_output_target = Lambda(lambda tensor: tensor[batch_size:, :])(D_conv3_output)
         else:
             raise Exception('Unsupported D_netwrok!')
 
-        def K_D_loss(inp):
-            if distance_metric == 'WD':
-                return K.abs(K.mean(inp[0]) - K.mean(inp[1]))
-            elif distance_metric == 'MMD':
-                return K.sum(K.abs(K.mean(inp[0], axis=0) - K.mean(inp[1], axis=0)))
-            else:
-                raise Exception('Unsupported distance_metric!')
-
-        D_loss = Lambda(K_D_loss)([D_dense_source, D_dense_target])
-        D_model = Model([x_source, x_target], D_loss, name='D_model')
+        D_model = Model([x_source, x_target], [D_output_source, D_output_target], name='D_model')
         D_model.compile(optimizer=Optimizer_D,
-                        loss=ssd_loss.compute_D_loss,
-                        loss_weights=[D_loss_weights])
+                        loss=['mae', 'mae'],
+                        loss_weights=D_loss_weights)
 
         # build the generator
-        if D_network == 'FC2':
-            Dense1.trainable = False
-            Dense2.trainable = False
-        elif D_network == 'FC1':
-            Dense2.trainable = False
-        elif D_network == 'Conv':
-            D_conv1.trainable = False
-            D_dense1.trainable = False
-        elif D_network == 'Conv2':
+        if D_network == 'Conv2':
             D_conv1.trainable = False
             D_conv2.trainable = False
-            D_dense1.trainable = False
+            D_conv3.trainable = False
         else:
             raise Exception('Unsupported D_netwrok!')
 
         base_model.trainable = True
-        G_loss = D_model([x_source, x_target])
-        G_model = Model([x_source, x_target], [G_loss, predictions])
+        G_output_source, G_output_target = D_model([x_source, x_target])
+        G_model = Model([x_source, x_target], [G_output_source, G_output_target, predictions])
 
         weights_path = '../trained_weights/VGG_ILSVRC_16_layers_fc_reduced.h5'
         G_model.load_weights(weights_path, by_name=True)
 
         G_model.compile(optimizer=Optimizer,
-                        loss=[ssd_loss.compute_G_loss, ssd_loss.compute_loss],
-                        loss_weights=[G_loss_weights, detection_loss_weights])
+                        loss=['mae', 'mae', ssd_loss.compute_loss],
+                        loss_weights=G_loss_weights)
 
         return D_model, G_model
 

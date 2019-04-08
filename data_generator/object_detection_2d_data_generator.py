@@ -1381,10 +1381,12 @@ class DataGenerator:
             #                                             batch_y_encoded])
             if 'encoded_labels' in returns:
                 if generator_type == 'G':
-                    batch_G_labels = [np.ones((batch_size_source, 1)), batch_y_encoded]
+                    batch_G_labels = [np.ones((batch_size_source, 8, 8, 1)),
+                                      np.ones((batch_size_source, 8, 8, 1)),
+                                      batch_y_encoded]
                     ret.append(batch_G_labels)
                 elif generator_type == 'D':
-                    ret.append([np.ones((batch_size_source, 1))])
+                    ret.append([np.zeros((batch_size_source, 8, 8, 1)), np.ones((batch_size_source, 8, 8, 1))])
                 elif generator_type == 'base':
                     ret.append([batch_y_encoded])
                 else:

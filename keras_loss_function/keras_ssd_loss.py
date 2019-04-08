@@ -97,30 +97,6 @@ class SSDLoss:
         log_loss = -tf.reduce_sum(y_true * tf.log(y_pred), axis=-1)
         return log_loss
 
-    # def compute_distance_loss(self, y_true, y_pred):
-    #     # get L2 distance
-    #     # batch_size = tf.shape(y_pred)[0]  # Output dtype: tf.int32
-    #     # y_pred_reshape = tf.reshape(y_pred, [batch_size, -1])
-    #     distance_loss = tf.norm(y_pred, ord='euclidean', axis=1)
-    #     return tf.reduce_sum(distance_loss)
-
-    # def compute_distance_loss(self, y_true, y_pred):
-    #     distance_loss = tf.reduce_sum(tf.square(y_pred), axis=1)
-    #     return tf.reduce_mean(distance_loss)
-    #
-    # def compute_distance_loss_source_only(self, y_true, y_pred):
-    #     # get L2 distance
-    #     # batch_size = tf.shape(y_pred)[0]  # Output dtype: tf.int32
-    #     # y_pred_reshape = tf.reshape(y_pred, [batch_size, -1])
-    #     # distance_loss = tf.norm(y_pred, ord='euclidean', axis=1)
-    #     return tf.zeros([1])
-
-    def compute_D_loss(self, y_true, y_pred):
-        return -1.0 * y_pred
-
-    def compute_G_loss(self, y_true, y_pred):
-        return y_pred
-
     def compute_loss(self, y_true, y_pred):
         '''
         Compute the loss of the SSD model prediction against the ground truth.

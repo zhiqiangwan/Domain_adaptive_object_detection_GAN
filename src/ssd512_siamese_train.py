@@ -63,19 +63,18 @@ Optimizer_Type = 'SGD'  # 'Adam'  #
 # Different batch_size will have different prediction loss.
 batch_size = 8  # Change the batch size if you like, or if you run into GPU memory issues.
 # alpha_distance = 0.0001  # Coefficient for the distance between the source and target feature maps.
-G_loss_weights = 0.01
-D_loss_weights = 0.01
-detection_loss_weights = 1.0
+G_loss_weights = [0.01, 0.01, 1.0]
+D_loss_weights = [0.01, 0.01]
 
 # 'City_to_foggy0_01_resize_600_1200' # 'City_to_foggy0_02_resize_600_1200'  # 'SIM10K_to_VOC07'
 # 'SIM10K'  # 'Cityscapes_foggy_beta_0_01'  #  'City_to_foggy0_02_resize_400_800'
 # 'SIM10K_to_VOC12_resize_400_800'
-DatasetName = 'City_to_foggy0_01_resize_400_800'  # 'SIM10K_to_VOC07_resize_400_800'  # 'SIM10K_to_City_resize_400_800'
+DatasetName = 'SIM10K_to_City_resize_400_800'  # 'City_to_foggy0_01_resize_400_800'  # 'SIM10K_to_VOC07_resize_400_800'  #
 processed_dataset_path = './processed_dataset_h5/' + DatasetName
 if not os.path.exists(processed_dataset_path):
     os.makedirs(processed_dataset_path)
 
-checkpoint_path = '../trained_weights/city_to_foggy0_01/current/G_weights0_01_D_weights_0_01'
+checkpoint_path = '../trained_weights/SIM10K_to_City/current/G_weights0_01_D_weights_0_01'
 if not os.path.exists(checkpoint_path):
     os.makedirs(checkpoint_path)
 
@@ -432,6 +431,17 @@ val_dataset_size = val_dataset.get_dataset_size()
 print("Number of images in the training dataset:\t{:>6}".format(train_dataset_size))
 print("Number of images in the validation dataset:\t{:>6}".format(val_dataset_size))
 
+# G_train_generator = train_dataset.generate(batch_size=batch_size,
+#                                            generator_type='G',
+#                                            shuffle=True,
+#                                            transformations=[ssd_data_augmentation],
+#                                            label_encoder=ssd_input_encoder,
+#                                            returns={'processed_images',
+#                                                     'encoded_labels'},
+#                                            keep_images_without_gt=False)
+#
+# while True:
+#     batch = next(G_train_generator)
 
 def lr_schedule(epoch):
     if epoch < 20:
@@ -493,60 +503,58 @@ steps_per_G_epoch = 50
 steps_per_D_epoch = 25
 
 for initial_epoch in range(final_epoch):
-    try:
-        print('\n')
-        print('Train generator.')
-        G_train_generator = train_dataset.generate(batch_size=batch_size,
-                                                   generator_type='G',
-                                                   shuffle=True,
-                                                   transformations=[ssd_data_augmentation],
-                                                   label_encoder=ssd_input_encoder,
-                                                   returns={'processed_images',
-                                                            'encoded_labels'},
-                                                   keep_images_without_gt=False)
+    print('\n')
+    print('Train generator.')
+    G_train_generator = train_dataset.generate(batch_size=batch_size,
+                                               generator_type='G',
+                                               shuffle=True,
+                                               transformations=[ssd_data_augmentation],
+                                               label_encoder=ssd_input_encoder,
+                                               returns={'processed_images',
+                                                        'encoded_labels'},
+                                               keep_images_without_gt=False)
 
-        if initial_epoch % 20 == 19:
-            val_generator = val_dataset.generate(batch_size=batch_size,
-                                                 generator_type='G',
-                                                 shuffle=False,
-                                                 transformations=[convert_to_3_channels,
-                                                                  resize],
-                                                 label_encoder=ssd_input_encoder,
-                                                 returns={'processed_images',
-                                                          'encoded_labels'},
-                                                 keep_images_without_gt=False)
+    if initial_epoch % 20 == 19:
+        val_generator = val_dataset.generate(batch_size=batch_size,
+                                             generator_type='G',
+                                             shuffle=False,
+                                             transformations=[convert_to_3_channels,
+                                                              resize],
+                                             label_encoder=ssd_input_encoder,
+                                             returns={'processed_images',
+                                                      'encoded_labels'},
+                                             keep_images_without_gt=False)
 
-            history_G = G_model.fit_generator(generator=G_train_generator,
-                                              steps_per_epoch=steps_per_G_epoch,
-                                              epochs=initial_epoch+1,
-                                              callbacks=callbacks,
-                                              validation_data=val_generator,
-                                              validation_steps=ceil(val_dataset_size/batch_size),
-                                              initial_epoch=initial_epoch)
+        history_G = G_model.fit_generator(generator=G_train_generator,
+                                          steps_per_epoch=steps_per_G_epoch,
+                                          epochs=initial_epoch+1,
+                                          callbacks=callbacks,
+                                          validation_data=val_generator,
+                                          validation_steps=ceil(val_dataset_size/batch_size),
+                                          initial_epoch=initial_epoch)
 
-        else:
-            history_G = G_model.fit_generator(generator=G_train_generator,
-                                              steps_per_epoch=steps_per_G_epoch,
-                                              epochs=initial_epoch+1,
-                                              callbacks=callbacks_no_val,
-                                              initial_epoch=initial_epoch)
-
-        print('\n')
-        print( 'Train discriminator.')
-        D_train_generator = train_dataset.generate(batch_size=batch_size,
-                                                   generator_type='D',
-                                                   shuffle=True,
-                                                   transformations=[ssd_data_augmentation],
-                                                   label_encoder=ssd_input_encoder,
-                                                   returns={'processed_images',
-                                                            'encoded_labels'},
-                                                   keep_images_without_gt=False)
-
-        history_D = D_model.fit_generator(generator=D_train_generator,
-                                          steps_per_epoch=steps_per_D_epoch,
+    else:
+        history_G = G_model.fit_generator(generator=G_train_generator,
+                                          steps_per_epoch=steps_per_G_epoch,
                                           epochs=initial_epoch+1,
                                           callbacks=callbacks_no_val,
                                           initial_epoch=initial_epoch)
 
-    except ValueError:
-        pass
+    print('\n')
+    print( 'Train discriminator.')
+    D_train_generator = train_dataset.generate(batch_size=batch_size,
+                                               generator_type='D',
+                                               shuffle=True,
+                                               transformations=[ssd_data_augmentation],
+                                               label_encoder=ssd_input_encoder,
+                                               returns={'processed_images',
+                                                        'encoded_labels'},
+                                               keep_images_without_gt=False)
+
+    history_D = D_model.fit_generator(generator=D_train_generator,
+                                      steps_per_epoch=steps_per_D_epoch,
+                                      epochs=initial_epoch+1,
+                                      callbacks=callbacks_no_val,
+                                      initial_epoch=initial_epoch)
+
+
