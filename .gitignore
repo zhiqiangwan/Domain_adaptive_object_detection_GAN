@@ -1,0 +1,3 @@
+trained_weights/
+src/processed_dataset_h5/
+*.h5
