@@ -21,7 +21,7 @@ import numpy as np
 
 import tensorflow as tf
 from keras.models import Model
-from keras.layers import Input, Lambda, Activation, Conv2D, MaxPooling2D, ZeroPadding2D, Reshape, Concatenate, Add, Subtract, GlobalAveragePooling2D, Dense, GlobalMaxPooling2D
+from keras.layers import Input, Lambda, Activation, Conv2D, MaxPooling2D, ZeroPadding2D, Reshape, Concatenate, Add, LeakyReLU, Subtract, GlobalAveragePooling2D, Dense, GlobalMaxPooling2D
 from keras.regularizers import l2
 import keras.backend as K
 
@@ -564,44 +564,45 @@ def ssd_512(image_size,
         print('D_network is {0}'.format(D_network))
 
         if D_network == 'Conv2':
-            D_conv1 = Conv2D(128, (3, 3), activation='relu', strides=2, padding='same', kernel_initializer='he_normal',
+            D_conv1 = Conv2D(64, (3, 3), padding='valid', kernel_initializer='he_normal',
                              kernel_regularizer=l2(l2_reg))
-            D_conv2 = Conv2D(64, (3, 3), activation='relu', strides=2, padding='same', kernel_initializer='he_normal',
+            D_conv2 = Conv2D(32, (3, 3), padding='valid', kernel_initializer='he_normal',
                              kernel_regularizer=l2(l2_reg))
-            D_conv3 = Conv2D(1, (3, 3), activation=None, strides=2, padding='same', kernel_initializer='he_normal',
-                             kernel_regularizer=l2(l2_reg))
+            D_dense1 = Dense(1, activation='sigmoid', kernel_regularizer=l2(l2_reg))
 
             D_conv1_output = D_conv1(base_model_output)
+            D_conv1_output = LeakyReLU(alpha=0.2)(D_conv1_output)
             D_conv2_output = D_conv2(D_conv1_output)
-            D_conv3_output = D_conv3(D_conv2_output)
-
-            D_output_source = Lambda(lambda tensor: tensor[:batch_size, :])(D_conv3_output)
-            D_output_target = Lambda(lambda tensor: tensor[batch_size:, :])(D_conv3_output)
+            D_conv2_output = LeakyReLU(alpha=0.2)(D_conv2_output)
+            D_GAP = GlobalAveragePooling2D()(D_conv2_output)
+            D_dense = D_dense1(D_GAP)
+            D_dense_source = Lambda(lambda tensor: tensor[:batch_size, :])(D_dense)
+            D_dense_target = Lambda(lambda tensor: tensor[batch_size:, :])(D_dense)
         else:
             raise Exception('Unsupported D_netwrok!')
 
-        D_model = Model([x_source, x_target], [D_output_source, D_output_target], name='D_model')
+        D_model = Model([x_source, x_target], [D_dense_source, D_dense_target], name='D_model')
         D_model.compile(optimizer=Optimizer_D,
-                        loss=['mae', 'mae'],
+                        loss=['binary_crossentropy', 'binary_crossentropy'],
                         loss_weights=D_loss_weights)
 
         # build the generator
         if D_network == 'Conv2':
             D_conv1.trainable = False
             D_conv2.trainable = False
-            D_conv3.trainable = False
+            D_dense1.trainable = False
         else:
             raise Exception('Unsupported D_netwrok!')
 
         base_model.trainable = True
-        G_output_source, G_output_target = D_model([x_source, x_target])
-        G_model = Model([x_source, x_target], [G_output_source, G_output_target, predictions])
+        G_dense_source, _ = D_model([x_source, x_target])
+        G_model = Model([x_source, x_target], [G_dense_source, predictions])
 
         weights_path = '../trained_weights/VGG_ILSVRC_16_layers_fc_reduced.h5'
         G_model.load_weights(weights_path, by_name=True)
 
         G_model.compile(optimizer=Optimizer,
-                        loss=['mae', 'mae', ssd_loss.compute_loss],
+                        loss=['binary_crossentropy', ssd_loss.compute_loss],
                         loss_weights=G_loss_weights)
 
         return D_model, G_model

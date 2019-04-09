@@ -97,6 +97,12 @@ class SSDLoss:
         log_loss = -tf.reduce_sum(y_true * tf.log(y_pred), axis=-1)
         return log_loss
 
+    def compute_D_loss(self, y_true, y_pred):
+        return -1.0 * y_pred
+
+    def compute_G_loss(self, y_true, y_pred):
+        return y_pred
+
     def compute_loss(self, y_true, y_pred):
         '''
         Compute the loss of the SSD model prediction against the ground truth.

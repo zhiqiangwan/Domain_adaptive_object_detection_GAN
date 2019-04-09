@@ -63,7 +63,7 @@ Optimizer_Type = 'SGD'  # 'Adam'  #
 # Different batch_size will have different prediction loss.
 batch_size = 8  # Change the batch size if you like, or if you run into GPU memory issues.
 # alpha_distance = 0.0001  # Coefficient for the distance between the source and target feature maps.
-G_loss_weights = [0.01, 0.01, 1.0]
+G_loss_weights = [0.01, 1.0]
 D_loss_weights = [0.01, 0.01]
 
 # 'City_to_foggy0_01_resize_600_1200' # 'City_to_foggy0_02_resize_600_1200'  # 'SIM10K_to_VOC07'
