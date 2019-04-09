@@ -302,10 +302,21 @@ def ssd_512(image_size,
     pool1 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding='same', name='pool1')(conv1_2)
 
     low_source = Lambda(lambda tensor: tensor[:batch_size, :, :, :])(pool1)
-    # low_target = Lambda(lambda tensor: tensor[batch_size:, :, :, :])(pool1)
+    low_target = Lambda(lambda tensor: tensor[batch_size:, :, :, :])(pool1)
+
+    # get the style features from the low_source
+    style_conv2_1 = Conv2D(64, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
+                           kernel_regularizer=l2(l2_reg), name='style_conv2_1')(low_source)
+    style_conv2_2 = Conv2D(64, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
+                           kernel_regularizer=l2(l2_reg), name='style_conv2_2')(style_conv2_1)
+
+    style_conv2_3 = Conv2D(64, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
+                           kernel_regularizer=l2(l2_reg), name='style_conv2_3')(style_conv2_2)
+
+    transferred = Add(name='transferred')([low_source, style_conv2_3])
 
     conv2_1 = Conv2D(128, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
-                     kernel_regularizer=l2(l2_reg), name='conv2_1')(pool1)  #
+                     kernel_regularizer=l2(l2_reg), name='conv2_1')(transferred)  # pool1
     conv2_2 = Conv2D(128, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
                      kernel_regularizer=l2(l2_reg), name='conv2_2')(conv2_1)
     pool2 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding='same', name='pool2')(conv2_2)
@@ -318,28 +329,8 @@ def ssd_512(image_size,
                      kernel_regularizer=l2(l2_reg), name='conv3_3')(conv3_2)
     pool3 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding='same', name='pool3')(conv3_3)
 
-    high_source = Lambda(lambda tensor: tensor[:batch_size, :, :, :])(pool3)
-    high_target = Lambda(lambda tensor: tensor[batch_size:, :, :, :])(pool3)
-
-    # get the style features from the low_source
-    style_conv2_1 = Conv2D(128, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
-                           kernel_regularizer=l2(l2_reg), name='style_conv2_1')(low_source)
-    style_conv2_2 = Conv2D(128, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
-                           kernel_regularizer=l2(l2_reg), name='style_conv2_2')(style_conv2_1)
-    style_pool2 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding='same', name='style_pool2')(style_conv2_2)
-
-    style_conv3_1 = Conv2D(256, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
-                           kernel_regularizer=l2(l2_reg), name='style_conv3_1')(style_pool2)
-    style_conv3_2 = Conv2D(256, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
-                           kernel_regularizer=l2(l2_reg), name='style_conv3_2')(style_conv3_1)
-    style_conv3_3 = Conv2D(256, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
-                           kernel_regularizer=l2(l2_reg), name='style_conv3_3')(style_conv3_2)
-    style_pool3 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding='same', name='style_pool3')(style_conv3_3)
-
-    transferred = Add(name='transferred')([high_source, style_pool3])
-
     conv4_1 = Conv2D(512, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
-                     kernel_regularizer=l2(l2_reg), name='conv4_1')(transferred)  # Important! (pool3)
+                     kernel_regularizer=l2(l2_reg), name='conv4_1')(pool3)  # Important! (pool3)
     conv4_2 = Conv2D(512, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
                      kernel_regularizer=l2(l2_reg), name='conv4_2')(conv4_1)
     conv4_3 = Conv2D(512, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal',
@@ -554,7 +545,7 @@ def ssd_512(image_size,
         ssd_loss = SSDLoss(neg_pos_ratio=3, alpha=1.0)
 
         # build the base model (The input and output should have the same batch_size)
-        base_model = Model(inputs=[x_source, x_target], outputs=[transferred, high_target])
+        base_model = Model(inputs=[x_source, x_target], outputs=[transferred, low_target])
         base_model.trainable = False
 
         base_model_source, base_model_target = base_model([x_source, x_target])
